@@ -1,6 +1,6 @@
 name = "spotfurry-auth"
 main = "src/index.ts"
-compatibility_date = "2026-04-25"
+compatibility_date = "2026-04-24"
 
 [observability]
 enabled = true
