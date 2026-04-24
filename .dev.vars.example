@@ -1,0 +1,4 @@
+PUBLIC_BASE_URL=https://your-spotfurry-auth.example.workers.dev
+APPLE_TEAM_ID=
+APPLE_KEY_ID=
+APPLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"

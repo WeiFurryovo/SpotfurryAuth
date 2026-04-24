@@ -1,0 +1,15 @@
+name = "spotfurry-auth"
+main = "src/index.ts"
+compatibility_date = "2026-04-25"
+
+[observability]
+enabled = true
+
+[durable_objects]
+bindings = [
+  { name = "PAIRING_SESSION", class_name = "PairingSessionObject" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PairingSessionObject"]
