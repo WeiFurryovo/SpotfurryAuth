@@ -4,14 +4,74 @@ export function renderHomePage(): string {
     body: `
       <main class="card">
         <p class="eyebrow">Spotfurry Auth</p>
-        <h1>Apple Music 扫码登录后端</h1>
+        <h1>Spotfurry 扫码登录后端</h1>
         <p>
           这个 Worker 负责创建手表配对会话、展示手机授权页，并把 Apple Music
-          的登录结果安全地中转回手表。
+          或 Spotify 的登录结果安全地中转回手表。
         </p>
         <p class="hint">
           请从手表端二维码进入授权页面。这个首页不会显示任何密钥或 token。
         </p>
+      </main>
+    `
+  });
+}
+
+export function renderSpotifyPairPage(params: {
+  sessionId?: string;
+  phoneSecret?: string;
+  code?: string;
+}): string {
+  if (!params.sessionId || !params.phoneSecret) {
+    return layout({
+      title: "无法配对",
+      body: `
+        <main class="card">
+          <p class="eyebrow danger">配对链接无效</p>
+          <h1>缺少扫码参数</h1>
+          <p>请回到 Spotfurry 手表端刷新二维码，然后重新扫码。</p>
+        </main>
+      `
+    });
+  }
+
+  const loginHref =
+    `/spotify/login?s=${encodeURIComponent(params.sessionId)}` +
+    `&p=${encodeURIComponent(params.phoneSecret)}`;
+
+  return layout({
+    title: "连接 Spotify",
+    body: `
+      <main class="card">
+        <p class="eyebrow">Spotify</p>
+        <h1>连接到 Spotfurry</h1>
+        <p>
+          确认配对码与手表显示一致，然后用你的 Spotify Premium 账号授权。
+        </p>
+        <div class="code">${escapeHtml(params.code ?? "---- ----")}</div>
+        <a class="button" href="${escapeHtml(loginHref)}">登录 Spotify</a>
+        <p class="hint">
+          授权后手表会拿到短期 access token。这个页面不会展示 client secret。
+        </p>
+      </main>
+    `
+  });
+}
+
+export function renderSpotifyPairResultPage(params: {
+  succeeded: boolean;
+  title: string;
+  message: string;
+}): string {
+  return layout({
+    title: params.title,
+    body: `
+      <main class="card">
+        <p class="eyebrow ${params.succeeded ? "" : "danger"}">
+          ${params.succeeded ? "Spotify 已连接" : "Spotify 连接失败"}
+        </p>
+        <h1>${escapeHtml(params.title)}</h1>
+        <p>${escapeHtml(params.message)}</p>
       </main>
     `
   });
@@ -202,7 +262,9 @@ function layout(params: {
         text-align: center;
       }
 
-      button {
+      button,
+      .button {
+        display: block;
         width: 100%;
         border: 0;
         border-radius: 999px;
@@ -212,6 +274,8 @@ function layout(params: {
         font: inherit;
         font-weight: 850;
         cursor: pointer;
+        text-align: center;
+        text-decoration: none;
       }
 
       button:disabled {

@@ -15,13 +15,26 @@ import {
 import {
   createPairingSession,
   createPairUrl,
+  type PairingProvider,
   POLL_AFTER_MS,
   resolvePublicBaseUrl
 } from "./pairing";
 import { PairingSessionObject } from "./pairingSessionObject";
-import { renderAppleMusicPairPage, renderHomePage } from "./html";
+import { randomBase64Url } from "./crypto";
+import {
+  createSpotifyAuthorizeUrl,
+  createSpotifyOAuthState,
+  exchangeSpotifyCodeForToken,
+  hasSpotifyOAuthConfig,
+  parseSpotifyOAuthState
+} from "./spotify";
+import {
+  renderAppleMusicPairPage,
+  renderHomePage,
+  renderSpotifyPairPage,
+  renderSpotifyPairResultPage
+} from "./html";
 import type {
-  CompletePairingInput,
   Env,
   StartPairingResponse
 } from "./types";
@@ -44,11 +57,147 @@ app.get("/apple-music/pair", (context) => {
   );
 });
 
+app.get("/spotify/pair", (context) => {
+  return htmlResponse(
+    renderSpotifyPairPage({
+      sessionId: context.req.query("s"),
+      phoneSecret: context.req.query("p"),
+      code: context.req.query("code")
+    })
+  );
+});
+
+app.get("/spotify/login", async (context) => {
+  const sessionId = context.req.query("s")?.trim() ?? "";
+  const phoneSecret = context.req.query("p")?.trim() ?? "";
+
+  if (!sessionId || !phoneSecret) {
+    return spotifyResult(
+      "无法连接 Spotify",
+      "配对链接缺少必要参数。请回到手表刷新二维码后重试。",
+      false,
+      400
+    );
+  }
+
+  if (!hasSpotifyOAuthConfig(context.env)) {
+    return spotifyResult(
+      "Spotify 后端未配置",
+      "请先在 Cloudflare Worker Secrets 中配置 SPOTIFY_CLIENT_ID 和 SPOTIFY_CLIENT_SECRET。",
+      false,
+      503
+    );
+  }
+
+  const stateSecret = randomBase64Url(32);
+  const objectResponse =
+    await pairingObject(context.env, sessionId).fetch(
+      "https://pairing-session/oauth/prepare",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          phoneSecret,
+          stateSecret
+        })
+      }
+    );
+
+  if (!objectResponse.ok) {
+    return spotifyResult(
+      "无法连接 Spotify",
+      await readPairingError(objectResponse, "无法准备 Spotify OAuth 状态"),
+      false,
+      objectResponse.status
+    );
+  }
+
+  const publicBaseUrl =
+    resolvePublicBaseUrl(context.env.PUBLIC_BASE_URL, context.req.raw);
+  const state = createSpotifyOAuthState(sessionId, stateSecret);
+  const authorizeUrl =
+    createSpotifyAuthorizeUrl({
+      env: context.env,
+      publicBaseUrl,
+      state
+    });
+
+  return Response.redirect(authorizeUrl, 302);
+});
+
+app.get("/spotify/callback", async (context) => {
+  const error = context.req.query("error")?.trim();
+  if (error) {
+    return spotifyResult(
+      "Spotify 授权已取消",
+      `Spotify 返回错误：${error}`,
+      false,
+      400
+    );
+  }
+
+  const code = context.req.query("code")?.trim() ?? "";
+  const state = parseSpotifyOAuthState(context.req.query("state") ?? "");
+  if (!code || !state) {
+    return spotifyResult(
+      "Spotify 回调无效",
+      "回调缺少 code 或 state，请回到手表刷新二维码后重试。",
+      false,
+      400
+    );
+  }
+
+  const publicBaseUrl =
+    resolvePublicBaseUrl(context.env.PUBLIC_BASE_URL, context.req.raw);
+  const authorizedPayloadResult =
+    await runSpotifyTokenExchange(async () => exchangeSpotifyCodeForToken({
+      env: context.env,
+      publicBaseUrl,
+      code
+    }));
+  if (authorizedPayloadResult instanceof Response) {
+    return authorizedPayloadResult;
+  }
+
+  const objectResponse =
+    await pairingObject(context.env, state.sessionId).fetch(
+      "https://pairing-session/oauth/complete",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          stateSecret: state.stateSecret,
+          authorizedPayload: authorizedPayloadResult
+        })
+      }
+    );
+
+  if (!objectResponse.ok) {
+    return spotifyResult(
+      "Spotify 授权未写入手表会话",
+      await readPairingError(objectResponse, "无法完成 Spotify 手表配对"),
+      false,
+      objectResponse.status
+    );
+  }
+
+  return spotifyResult(
+    "Spotify 已连接",
+    "登录成功，可以回到手表继续播放。",
+    true
+  );
+});
+
 app.get("/api/health", (context) => {
   return context.json({
     ok: true,
     appleDeveloperTokenConfigured: hasDeveloperTokenSource(context.env),
-    developerTokenSource: getDeveloperTokenSource(context.env) ?? "missing"
+    developerTokenSource: getDeveloperTokenSource(context.env) ?? "missing",
+    spotifyOAuthConfigured: hasSpotifyOAuthConfig(context.env)
   });
 });
 
@@ -66,13 +215,55 @@ app.get("/api/apple/developer-token", async (context) => {
 });
 
 app.post("/api/pairing/start", async (context) => {
+  return await startPairing(
+    context.env,
+    context.req.raw,
+    "apple-music"
+  );
+});
+
+app.post("/api/spotify/pairing/start", async (context) => {
+  return await startPairing(
+    context.env,
+    context.req.raw,
+    "spotify"
+  );
+});
+
+app.get("/api/spotify/pairing/status", async (context) => {
+  const sessionId = context.req.query("sessionId") ?? "";
+  const watchSecret =
+    readBearerToken(context.req.raw) ??
+    context.req.query("watchSecret") ??
+    "";
+
+  if (!sessionId) {
+    return jsonResponse({ error: "Missing sessionId" }, 400);
+  }
+
+  const object = pairingObject(context.env, sessionId);
+  const objectResponse =
+    await object.fetch(
+      `https://pairing-session/status?watchSecret=${encodeURIComponent(watchSecret)}`
+    );
+  const payload = await objectResponse.json<Record<string, unknown>>();
+
+  return jsonResponse(payload, objectResponse.status);
+});
+
+async function startPairing(
+  env: Env,
+  request: Request,
+  provider: PairingProvider
+): Promise<Response> {
   const session = createPairingSession();
   const pairUrl =
     createPairUrl(
-      resolvePublicBaseUrl(context.env.PUBLIC_BASE_URL, context.req.raw),
-      session
+      resolvePublicBaseUrl(env.PUBLIC_BASE_URL, request),
+      session,
+      provider
     );
-  const object = pairingObject(context.env, session.sessionId);
+  const object = pairingObject(env, session.sessionId);
   const objectResponse =
     await object.fetch(
       "https://pairing-session/start",
@@ -99,7 +290,7 @@ app.post("/api/pairing/start", async (context) => {
   };
 
   return jsonResponse(response);
-});
+}
 
 app.get("/api/pairing/status", async (context) => {
   const sessionId = context.req.query("sessionId") ?? "";
@@ -138,7 +329,7 @@ app.get("/api/pairing/status", async (context) => {
 });
 
 app.post("/api/pairing/complete", async (context) => {
-  const input = await parseJsonBody<CompletePairingInput>(context.req.raw);
+  const input = await parseJsonBody<{ sessionId?: string }>(context.req.raw);
   const sessionId = input.sessionId?.trim();
 
   if (!sessionId) {
@@ -177,6 +368,60 @@ function pairingObject(
   sessionId: string
 ): DurableObjectStub {
   return env.PAIRING_SESSION.get(env.PAIRING_SESSION.idFromName(sessionId));
+}
+
+function spotifyResult(
+  title: string,
+  message: string,
+  succeeded: boolean,
+  status: number = 200
+): Response {
+  return htmlResponse(
+    renderSpotifyPairResultPage({
+      succeeded,
+      title,
+      message
+    }),
+    status
+  );
+}
+
+async function readPairingError(
+  response: Response,
+  fallback: string
+): Promise<string> {
+  try {
+    const payload = await response.json<Record<string, unknown>>();
+    const error = payload.error;
+    const status = payload.status;
+
+    if (typeof error === "string" && error.trim()) {
+      return error.trim();
+    }
+
+    if (typeof status === "string" && status.trim()) {
+      return `配对状态：${status}`;
+    }
+  } catch {
+    return fallback;
+  }
+
+  return fallback;
+}
+
+async function runSpotifyTokenExchange<T>(
+  action: () => Promise<T>
+): Promise<T | Response> {
+  try {
+    return await action();
+  } catch (error) {
+    return spotifyResult(
+      "Spotify 换取 token 失败",
+      error instanceof Error ? error.message : "未知错误",
+      false,
+      error instanceof HttpError ? error.status : 500
+    );
+  }
 }
 
 export default app;

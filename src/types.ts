@@ -6,6 +6,10 @@ export interface Env {
   APPLE_PRIVATE_KEY?: string;
   MUSICKIT_TOKEN_PROVIDER_URL?: string;
   MUSICKIT_TOKEN_PROVIDER_AUTHORIZATION?: string;
+  SPOTIFY_CLIENT_ID?: string;
+  SPOTIFY_CLIENT_SECRET?: string;
+  SPOTIFY_REDIRECT_URI?: string;
+  SPOTIFY_SCOPES?: string;
 }
 
 export type PairingStatus = "pending" | "authorized" | "consumed" | "expired";
@@ -19,6 +23,8 @@ export interface PairingSessionRecord {
   createdAt: number;
   expiresAt: number;
   musicUserToken?: string;
+  oauthStateHash?: string;
+  authorizedPayload?: Record<string, unknown>;
 }
 
 export interface StartPairingInput {
@@ -43,4 +49,14 @@ export interface CompletePairingInput {
   sessionId: string;
   phoneSecret: string;
   musicUserToken: string;
+}
+
+export interface PrepareOAuthPairingInput {
+  phoneSecret: string;
+  stateSecret: string;
+}
+
+export interface CompleteOAuthPairingInput {
+  stateSecret: string;
+  authorizedPayload: Record<string, unknown>;
 }

@@ -2,6 +2,7 @@ import { randomBase64Url } from "./crypto";
 import type { StartPairingInput } from "./types";
 
 const READABLE_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+export type PairingProvider = "apple-music" | "spotify";
 
 export const PAIRING_TTL_MS = 5 * 60 * 1000;
 export const POLL_AFTER_MS = 2 * 1000;
@@ -21,9 +22,14 @@ export function createPairingSession(
 
 export function createPairUrl(
   baseUrl: string,
-  session: Pick<StartPairingInput, "sessionId" | "phoneSecret" | "code">
+  session: Pick<StartPairingInput, "sessionId" | "phoneSecret" | "code">,
+  provider: PairingProvider = "apple-music"
 ): string {
-  const url = new URL("/apple-music/pair", normalizeBaseUrl(baseUrl));
+  const path =
+    provider === "spotify" ?
+      "/spotify/pair" :
+      "/apple-music/pair";
+  const url = new URL(path, normalizeBaseUrl(baseUrl));
   url.searchParams.set("s", session.sessionId);
   url.searchParams.set("p", session.phoneSecret);
   url.searchParams.set("code", session.code);

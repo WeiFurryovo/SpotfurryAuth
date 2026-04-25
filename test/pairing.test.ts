@@ -35,6 +35,22 @@ describe("pairing helpers", () => {
     expect(url).not.toContain(session.watchSecret);
   });
 
+  it("creates a Spotify pairing url without leaking the watch secret", () => {
+    const session = {
+      sessionId: "session-id",
+      phoneSecret: "phone-secret",
+      watchSecret: "watch-secret",
+      code: "ABCD-1234"
+    };
+
+    const url = createPairUrl("https://auth.example.com/", session, "spotify");
+
+    expect(url).toBe(
+      "https://auth.example.com/spotify/pair?s=session-id&p=phone-secret&code=ABCD-1234"
+    );
+    expect(url).not.toContain(session.watchSecret);
+  });
+
   it("prefers configured public base url over request origin", () => {
     const request = new Request("https://worker.example.dev/api/pairing/start");
 

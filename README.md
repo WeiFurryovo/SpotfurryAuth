@@ -1,8 +1,8 @@
 # SpotfurryAuth
 
-SpotfurryAuth 是 Spotfurry 手表端 Apple Music 扫码登录的后端骨架。它负责创建一次性配对会话、提供手机扫码授权页，并把 Apple Music 登录结果中转给手表端。
+SpotfurryAuth 是 Spotfurry 手表端 Apple Music / Spotify 扫码登录的后端骨架。它负责创建一次性配对会话、提供手机扫码授权页，并把音乐服务登录结果中转给手表端。
 
-这个项目只做认证中转，不处理 Apple Music 音频下载、解密或缓存。
+这个项目只做认证中转，不处理 Apple Music 或 Spotify 音频下载、解密或缓存。
 
 ## 技术选型
 
@@ -11,6 +11,7 @@ SpotfurryAuth 是 Spotfurry 手表端 Apple Music 扫码登录的后端骨架。
 - Durable Objects
 - Web Crypto
 - MusicKit JS
+- Spotify OAuth Authorization Code Flow
 
 选择 Durable Objects 的原因是扫码登录需要“手机刚完成授权，手表马上轮询到结果”的强状态同步；Workers KV 的最终一致性不适合作为第一版扫码会话主存储。
 
@@ -21,6 +22,11 @@ SpotfurryAuth 是 Spotfurry 手表端 Apple Music 扫码登录的后端骨架。
 - `POST /api/pairing/complete`：手机授权完成后提交 `musicUserToken`
 - `GET /api/pairing/status?sessionId=...`：手表轮询登录状态
 - `GET /api/apple/developer-token`：后端用 Cloudflare Secrets 生成 Apple Music developer token
+- `POST /api/spotify/pairing/start`：手表创建 Spotify 一次性扫码会话
+- `GET /spotify/pair?s=...&p=...`：手机扫码打开 Spotify 授权页
+- `GET /spotify/login?s=...&p=...`：手机跳转 Spotify OAuth 授权
+- `GET /spotify/callback`：接收 Spotify OAuth code 并换取短期 access token
+- `GET /api/spotify/pairing/status?sessionId=...`：手表轮询 Spotify 登录状态
 - `GET /api/health`：检查服务和 Apple 密钥配置状态
 - 可选 `MUSICKIT_TOKEN_PROVIDER_URL`：不配置 Apple `.p8` 时，从外部 MusicKit developer token provider 获取 token
 
@@ -53,6 +59,10 @@ APPLE_KEY_ID=你的 Apple MusicKit Key ID
 APPLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 MUSICKIT_TOKEN_PROVIDER_URL=
 MUSICKIT_TOKEN_PROVIDER_AUTHORIZATION=
+SPOTIFY_CLIENT_ID=你的 Spotify Client ID
+SPOTIFY_CLIENT_SECRET=你的 Spotify Client Secret
+SPOTIFY_REDIRECT_URI=http://localhost:8787/spotify/callback
+SPOTIFY_SCOPES=streaming user-read-email user-read-private user-modify-playback-state user-read-playback-state
 ```
 
 启动本地 Worker：
@@ -88,6 +98,26 @@ npx wrangler secret put MUSICKIT_TOKEN_PROVIDER_AUTHORIZATION
 
 `MUSICKIT_TOKEN_PROVIDER_AUTHORIZATION` 是可选项，只在你的 token provider 需要 `Authorization` 请求头时填写。不要把第三方 provider 地址硬编码到源码里，只使用你有权使用的 provider。
 
+Spotify Web Playback SDK 需要 Spotify Premium 账号。先在 Spotify Developer Dashboard 创建应用，并把回调地址加入 Redirect URI allowlist，例如：
+
+```text
+https://spotfurry-auth.weifurry-c80.workers.dev/spotify/callback
+```
+
+然后设置 Worker Secrets：
+
+```sh
+npx wrangler secret put SPOTIFY_CLIENT_ID
+npx wrangler secret put SPOTIFY_CLIENT_SECRET
+npx wrangler secret put SPOTIFY_REDIRECT_URI
+```
+
+`SPOTIFY_SCOPES` 可选，默认值为：
+
+```text
+streaming user-read-email user-read-private user-modify-playback-state user-read-playback-state
+```
+
 部署：
 
 ```sh
@@ -98,9 +128,10 @@ npm run deploy
 
 ```properties
 spotfurry.appleMusicAuthBaseUrl=https://你的-worker.workers.dev
+spotfurry.spotifyAuthBaseUrl=https://你的-worker.workers.dev
 ```
 
-当前 Android 端还需要下一步改造：进入扫码页时调用 `/api/pairing/start`，使用后端返回的 `pairUrl` 生成二维码，并用 `sessionId + watchSecret` 轮询 `/api/pairing/status`。
+Android 端进入扫码页时调用对应的 `/api/.../pairing/start`，使用后端返回的 `pairUrl` 生成二维码，并用 `sessionId + watchSecret` 轮询对应的 `/api/.../pairing/status`。
 
 ## API 约定
 
@@ -154,6 +185,57 @@ Authorization: Bearer <watchSecret>
 
 手表第一次拿到 token 后，Durable Object 会立即删除该会话，避免重复读取。
 
+### Spotify 创建扫码会话
+
+```http
+POST /api/spotify/pairing/start
+```
+
+返回：
+
+```json
+{
+  "sessionId": "session-id",
+  "watchSecret": "only-watch-knows-this",
+  "code": "ABCD-1234",
+  "pairUrl": "https://auth.example.com/spotify/pair?s=...&p=...&code=ABCD-1234",
+  "expiresAt": 1770000000000,
+  "pollAfterMs": 2000
+}
+```
+
+手机扫码后会跳转 Spotify OAuth。Worker 使用 Authorization Code Flow 在服务端交换 token，不会把 `SPOTIFY_CLIENT_SECRET` 下发给手表或浏览器。
+
+### Spotify 轮询登录状态
+
+```http
+GET /api/spotify/pairing/status?sessionId=...
+Authorization: Bearer <watchSecret>
+```
+
+未完成：
+
+```json
+{
+  "status": "pending",
+  "expiresAt": 1770000000000
+}
+```
+
+完成：
+
+```json
+{
+  "status": "authorized",
+  "accessToken": "spotify-access-token",
+  "expiresIn": 3600,
+  "tokenType": "Bearer",
+  "scope": "streaming user-read-email user-read-private"
+}
+```
+
+后端不会把 Spotify `refresh_token` 返回给手表。短期 access token 过期后，第一版策略是让用户重新扫码授权。
+
 ### 手机提交授权结果
 
 ```http
@@ -173,9 +255,13 @@ Content-Type: application/json
 
 - 不要提交 `.dev.vars`。
 - 不要提交 Apple `.p8` 私钥。
+- 不要提交 Spotify Client Secret。
 - 不要把 `APPLE_PRIVATE_KEY` 放进 Android App。
+- 不要把 `SPOTIFY_CLIENT_SECRET` 放进 Android App。
 - 不要硬编码或公开滥用第三方 MusicKit token provider。
 - 不要记录 `musicUserToken` 日志。
+- 不要记录 Spotify `accessToken` 或 OAuth `code` 日志。
 - 配对会话 5 分钟过期。
 - `phoneSecret` 和 `watchSecret` 分离，二维码里不包含手表取 token 的凭证。
+- Spotify OAuth `state` 使用单独随机值绑定配对会话，不把 `phoneSecret` 发给 Spotify。
 - 手表取走 token 后会话即删除。
