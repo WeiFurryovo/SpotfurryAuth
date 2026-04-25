@@ -76,7 +76,10 @@ npm run dev
 ```sh
 npm run check
 npm run test
+npm run dry-run
 ```
+
+`dry-run` 会让 Wrangler 打包 Worker，但不会部署到 Cloudflare。
 
 ## 部署
 
@@ -265,3 +268,14 @@ Content-Type: application/json
 - `phoneSecret` 和 `watchSecret` 分离，二维码里不包含手表取 token 的凭证。
 - Spotify OAuth `state` 使用单独随机值绑定配对会话，不把 `phoneSecret` 发给 Spotify。
 - 手表取走 token 后会话即删除。
+- `/api/*` 默认不开放跨源 CORS；手机授权页与 API 走同源调用，Android 手表端不依赖浏览器 CORS。
+- 高频 API 有基础速率限制，避免公开 Worker 被反复创建配对会话或刷 developer token。
+- Worker 内部转发到 Durable Object 时使用 `Authorization: Bearer <watchSecret>`，避免把手表取 token 凭证写入内部 URL。
+
+## 自动验证
+
+仓库包含 GitHub Actions 工作流：
+
+- 文件位置：`.github/workflows/worker-ci.yml`
+- 触发方式：`push 到 main`、`pull request`、手动 `workflow_dispatch`
+- 验证内容：`npm ci`、`npm run check`、`npm run test`、`npm run dry-run`

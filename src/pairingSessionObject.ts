@@ -1,5 +1,5 @@
 import { sha256Hex } from "./crypto";
-import { HttpError, jsonResponse, parseJsonBody } from "./http";
+import { HttpError, jsonResponse, parseJsonBody, readBearerToken } from "./http";
 import { isExpired } from "./pairing";
 import type {
   CompleteOAuthPairingInput,
@@ -29,7 +29,7 @@ export class PairingSessionObject {
       }
 
       if (request.method === "GET" && url.pathname === "/status") {
-        return await this.status(url.searchParams.get("watchSecret") ?? "");
+        return await this.status(readBearerToken(request) ?? "");
       }
 
       if (request.method === "POST" && url.pathname === "/complete") {

@@ -9,6 +9,7 @@ export function jsonResponse(
   const headers = new Headers(responseInit.headers);
   headers.set("content-type", "application/json; charset=utf-8");
   headers.set("cache-control", "no-store");
+  setSecurityHeaders(headers);
 
   return new Response(JSON.stringify(body, null, 2), {
     ...responseInit,
@@ -27,6 +28,7 @@ export function htmlResponse(
   const headers = new Headers(responseInit.headers);
   headers.set("content-type", "text/html; charset=utf-8");
   headers.set("cache-control", "no-store");
+  setSecurityHeaders(headers);
 
   return new Response(html, {
     ...responseInit,
@@ -60,4 +62,9 @@ export class HttpError extends Error {
   ) {
     super(message);
   }
+}
+
+function setSecurityHeaders(headers: Headers): void {
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("referrer-policy", "no-referrer");
 }

@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import {
   getDeveloperTokenSource,
   getAppleDeveloperToken,
@@ -20,6 +19,7 @@ import {
   resolvePublicBaseUrl
 } from "./pairing";
 import { PairingSessionObject } from "./pairingSessionObject";
+import { rateLimitResponse } from "./rateLimit";
 import { randomBase64Url } from "./crypto";
 import {
   createSpotifyAuthorizeUrl,
@@ -44,7 +44,14 @@ export { PairingSessionObject };
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use("/api/*", cors());
+app.use("/api/*", async (context, next) => {
+  const limitedResponse = rateLimitResponse(context.req.raw);
+  if (limitedResponse) {
+    return limitedResponse;
+  }
+
+  await next();
+});
 
 app.get("/", () => htmlResponse(renderHomePage()));
 
@@ -194,7 +201,7 @@ app.get("/spotify/callback", async (context) => {
 });
 
 app.get("/api/health", (context) => {
-  return context.json({
+  return jsonResponse({
     ok: true,
     appleDeveloperTokenConfigured: hasDeveloperTokenSource(context.env),
     developerTokenSource: getDeveloperTokenSource(context.env) ?? "missing",
@@ -375,7 +382,12 @@ async function fetchPairingStatus(
 ): Promise<{ payload: Record<string, unknown>; status: number }> {
   const objectResponse =
     await pairingObject(env, sessionId).fetch(
-      `https://pairing-session/status?watchSecret=${encodeURIComponent(watchSecret)}`
+      "https://pairing-session/status",
+      {
+        headers: {
+          authorization: `Bearer ${watchSecret}`
+        }
+      }
     );
   const payload = await objectResponse.json<Record<string, unknown>>();
 
