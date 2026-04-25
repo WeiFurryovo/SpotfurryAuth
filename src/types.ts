@@ -12,7 +12,7 @@ export interface Env {
   SPOTIFY_SCOPES?: string;
 }
 
-export type PairingStatus = "pending" | "authorized" | "consumed" | "expired";
+export type PairingStatus = "pending" | "authorized" | "expired";
 
 export interface PairingSessionRecord {
   sessionId: string;

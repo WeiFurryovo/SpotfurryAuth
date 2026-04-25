@@ -15,8 +15,10 @@ const SESSION_KEY = "session";
 export class PairingSessionObject {
   constructor(
     private readonly state: DurableObjectState,
-    private readonly env: Env
-  ) {}
+    env: Env
+  ) {
+    void env;
+  }
 
   async fetch(request: Request): Promise<Response> {
     try {

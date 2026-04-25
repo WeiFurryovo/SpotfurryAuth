@@ -35,6 +35,7 @@ import {
   renderSpotifyPairResultPage
 } from "./html";
 import type {
+  CompletePairingInput,
   Env,
   StartPairingResponse
 } from "./types";
@@ -241,14 +242,10 @@ app.get("/api/spotify/pairing/status", async (context) => {
     return jsonResponse({ error: "Missing sessionId" }, 400);
   }
 
-  const object = pairingObject(context.env, sessionId);
-  const objectResponse =
-    await object.fetch(
-      `https://pairing-session/status?watchSecret=${encodeURIComponent(watchSecret)}`
-    );
-  const payload = await objectResponse.json<Record<string, unknown>>();
+  const statusResult =
+    await fetchPairingStatus(context.env, sessionId, watchSecret);
 
-  return jsonResponse(payload, objectResponse.status);
+  return jsonResponse(statusResult.payload, statusResult.status);
 });
 
 async function startPairing(
@@ -303,15 +300,16 @@ app.get("/api/pairing/status", async (context) => {
     return jsonResponse({ error: "Missing sessionId" }, 400);
   }
 
-  const object = pairingObject(context.env, sessionId);
-  const objectResponse =
-    await object.fetch(
-      `https://pairing-session/status?watchSecret=${encodeURIComponent(watchSecret)}`
-    );
-  const payload = await objectResponse.json<Record<string, unknown>>();
+  const statusResult =
+    await fetchPairingStatus(context.env, sessionId, watchSecret);
+  const payload = statusResult.payload;
 
-  if (!objectResponse.ok || payload.status !== "authorized") {
-    return jsonResponse(payload, objectResponse.status);
+  if (
+    statusResult.status < 200 ||
+    statusResult.status >= 300 ||
+    payload.status !== "authorized"
+  ) {
+    return jsonResponse(payload, statusResult.status);
   }
 
   if (hasDeveloperTokenSource(context.env)) {
@@ -329,7 +327,7 @@ app.get("/api/pairing/status", async (context) => {
 });
 
 app.post("/api/pairing/complete", async (context) => {
-  const input = await parseJsonBody<{ sessionId?: string }>(context.req.raw);
+  const input = await parseJsonBody<CompletePairingInput>(context.req.raw);
   const sessionId = input.sessionId?.trim();
 
   if (!sessionId) {
@@ -368,6 +366,23 @@ function pairingObject(
   sessionId: string
 ): DurableObjectStub {
   return env.PAIRING_SESSION.get(env.PAIRING_SESSION.idFromName(sessionId));
+}
+
+async function fetchPairingStatus(
+  env: Env,
+  sessionId: string,
+  watchSecret: string
+): Promise<{ payload: Record<string, unknown>; status: number }> {
+  const objectResponse =
+    await pairingObject(env, sessionId).fetch(
+      `https://pairing-session/status?watchSecret=${encodeURIComponent(watchSecret)}`
+    );
+  const payload = await objectResponse.json<Record<string, unknown>>();
+
+  return {
+    payload,
+    status: objectResponse.status
+  };
 }
 
 function spotifyResult(
