@@ -22,6 +22,7 @@ SpotfurryAuth 是 Spotfurry 手表端 Apple Music 扫码登录的后端骨架。
 - `GET /api/pairing/status?sessionId=...`：手表轮询登录状态
 - `GET /api/apple/developer-token`：后端用 Cloudflare Secrets 生成 Apple Music developer token
 - `GET /api/health`：检查服务和 Apple 密钥配置状态
+- 可选 `MUSICKIT_TOKEN_PROVIDER_URL`：不配置 Apple `.p8` 时，从外部 MusicKit developer token provider 获取 token
 
 ## 本地开发
 
@@ -50,6 +51,8 @@ PUBLIC_BASE_URL=http://localhost:8787
 APPLE_TEAM_ID=你的 Apple Team ID
 APPLE_KEY_ID=你的 Apple MusicKit Key ID
 APPLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+MUSICKIT_TOKEN_PROVIDER_URL=
+MUSICKIT_TOKEN_PROVIDER_AUTHORIZATION=
 ```
 
 启动本地 Worker：
@@ -75,6 +78,15 @@ npx wrangler secret put APPLE_KEY_ID
 npx wrangler secret put APPLE_PRIVATE_KEY
 npx wrangler secret put PUBLIC_BASE_URL
 ```
+
+如果只是做 Cider-like 的外部 token provider 实验，也可以不配置 Apple `.p8`，改为设置：
+
+```sh
+npx wrangler secret put MUSICKIT_TOKEN_PROVIDER_URL
+npx wrangler secret put MUSICKIT_TOKEN_PROVIDER_AUTHORIZATION
+```
+
+`MUSICKIT_TOKEN_PROVIDER_AUTHORIZATION` 是可选项，只在你的 token provider 需要 `Authorization` 请求头时填写。不要把第三方 provider 地址硬编码到源码里，只使用你有权使用的 provider。
 
 部署：
 
@@ -162,6 +174,7 @@ Content-Type: application/json
 - 不要提交 `.dev.vars`。
 - 不要提交 Apple `.p8` 私钥。
 - 不要把 `APPLE_PRIVATE_KEY` 放进 Android App。
+- 不要硬编码或公开滥用第三方 MusicKit token provider。
 - 不要记录 `musicUserToken` 日志。
 - 配对会话 5 分钟过期。
 - `phoneSecret` 和 `watchSecret` 分离，二维码里不包含手表取 token 的凭证。

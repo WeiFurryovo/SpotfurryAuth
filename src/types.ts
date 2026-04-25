@@ -4,6 +4,8 @@ export interface Env {
   APPLE_TEAM_ID?: string;
   APPLE_KEY_ID?: string;
   APPLE_PRIVATE_KEY?: string;
+  MUSICKIT_TOKEN_PROVIDER_URL?: string;
+  MUSICKIT_TOKEN_PROVIDER_AUTHORIZATION?: string;
 }
 
 export type PairingStatus = "pending" | "authorized" | "consumed" | "expired";

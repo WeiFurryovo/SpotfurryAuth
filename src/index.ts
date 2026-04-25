@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
+  getDeveloperTokenSource,
   getAppleDeveloperToken,
-  hasAppleDeveloperConfig
+  hasDeveloperTokenSource
 } from "./appleDeveloperToken";
 import {
   HttpError,
@@ -46,15 +47,16 @@ app.get("/apple-music/pair", (context) => {
 app.get("/api/health", (context) => {
   return context.json({
     ok: true,
-    appleDeveloperTokenConfigured: hasAppleDeveloperConfig(context.env)
+    appleDeveloperTokenConfigured: hasDeveloperTokenSource(context.env),
+    developerTokenSource: getDeveloperTokenSource(context.env) ?? "missing"
   });
 });
 
 app.get("/api/apple/developer-token", async (context) => {
-  if (!hasAppleDeveloperConfig(context.env)) {
+  if (!hasDeveloperTokenSource(context.env)) {
     return jsonResponse(
       {
-        error: "Apple Music developer token secrets are not configured"
+        error: "Apple Music developer token source is not configured"
       },
       503
     );
@@ -121,7 +123,7 @@ app.get("/api/pairing/status", async (context) => {
     return jsonResponse(payload, objectResponse.status);
   }
 
-  if (hasAppleDeveloperConfig(context.env)) {
+  if (hasDeveloperTokenSource(context.env)) {
     const developerToken = await getAppleDeveloperToken(context.env);
     return jsonResponse({
       ...payload,
