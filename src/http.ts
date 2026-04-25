@@ -44,13 +44,13 @@ export async function parseJsonBody<T>(request: Request): Promise<T> {
 }
 
 export function readBearerToken(request: Request): string | undefined {
-  const authorization = request.headers.get("authorization") ?? "";
-  const [scheme, token] = authorization.split(/\s+/, 2);
-  if (scheme?.toLowerCase() !== "bearer" || !token) {
+  const authorization = request.headers.get("authorization")?.trim() ?? "";
+  const match = /^bearer\s+(\S+)$/iu.exec(authorization);
+  if (!match) {
     return undefined;
   }
 
-  return token;
+  return match[1];
 }
 
 export class HttpError extends Error {
